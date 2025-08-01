@@ -1,0 +1,5 @@
+{
+  "name": "AI Project Manager Chat",
+  "description": "An AI-powered chat application that acts as a project manager, helping users structure their ideas into actionable, step-by-step plans.",
+  "requestFramePermissions": []
+}
