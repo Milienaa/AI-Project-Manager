@@ -1,16 +1,24 @@
+
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import type { Chat } from '@google/genai';
-import type { Message } from './types';
+import type { Message, ExtractedItem } from './types';
 import { Sidebar } from './components/Sidebar';
 import { ChatWindow } from './components/ChatWindow';
-import { createChatSession, sendMessageStream } from './services/geminiService';
+import { createChatSession, sendMessageStream, extractActionItems } from './services/geminiService';
 import { INITIAL_MESSAGES, AI_GREETING } from './constants';
+
+interface FunctionCall {
+  name: string;
+  args: { [key: string]: any; };
+}
 
 function App() {
   const [messages, setMessages] = useState<Message[]>(INITIAL_MESSAGES);
   const [isLoading, setIsLoading] = useState<boolean>(false);
   const [chatSession, setChatSession] = useState<Chat | null>(null);
   const [sidebarWidth, setSidebarWidth] = useState(420);
+  const [extractionPanelMessageId, setExtractionPanelMessageId] = useState<string | null>(null);
+  const [acceptedItems, setAcceptedItems] = useState<ExtractedItem[]>([]);
   const isResizing = useRef(false);
 
   const handleMouseDown = (e: React.MouseEvent) => {
@@ -56,7 +64,6 @@ function App() {
 
     } catch (error) {
       console.error("Failed to initialize chat session:", error);
-      // Handle API key error gracefully in UI
       const errorMessage: Message = {
         id: 'error-init',
         sender: 'ai',
@@ -72,7 +79,7 @@ function App() {
         console.error("Chat session not initialized.");
         return;
     }
-
+    setExtractionPanelMessageId(null);
     const userMessage: Message = {
       id: Date.now().toString(),
       sender: 'user',
@@ -87,6 +94,7 @@ function App() {
         
         let aiResponseText = '';
         const aiMessageId = `ai-${Date.now()}`;
+        let functionCalls: FunctionCall[] = [];
         
         setMessages(prev => [...prev, {
             id: aiMessageId,
@@ -96,12 +104,34 @@ function App() {
         }]);
 
         for await (const chunk of stream) {
-            const chunkText = chunk.text;
-            aiResponseText += chunkText;
-            setMessages(prev => prev.map(msg => 
-                msg.id === aiMessageId ? { ...msg, text: aiResponseText } : msg
-            ));
+            if (chunk.text) {
+                aiResponseText += chunk.text;
+                setMessages(prev => prev.map(msg => 
+                    msg.id === aiMessageId ? { ...msg, text: aiResponseText } : msg
+                ));
+            }
+            
+            // HACK: The `functionCalls` property may exist on the chunk object directly as an array.
+            // We access it through `any` to bypass strict type checking, as SDK versions can vary.
+            const calls = (chunk as any).functionCalls;
+            if (calls && Array.isArray(calls)) {
+                functionCalls.push(...calls);
+            }
         }
+        
+        let isExtractable = false;
+        let extractionText = '';
+        const extractionCall = functionCalls.find(call => call.name === 'proposeActionItemsExtraction');
+
+        if (extractionCall) {
+            isExtractable = true;
+            extractionText = extractionCall.args.textToExtract as string || aiResponseText;
+        }
+
+        setMessages(prev => prev.map(msg => 
+            msg.id === aiMessageId ? { ...msg, text: aiResponseText, isExtractable, extractionText } : msg
+        ));
+
 
     } catch (error) {
         console.error("Error sending message:", error);
@@ -117,6 +147,47 @@ function App() {
     }
   }, [chatSession]);
 
+  const handleExtractItems = useCallback(async (messageId: string) => {
+    const message = messages.find(m => m.id === messageId);
+    if (!message || !message.extractionText) return;
+
+    setMessages(prev => prev.map(m => m.id === messageId ? { ...m, isExtractionLoading: true } : m));
+    
+    const items = await extractActionItems(message.extractionText);
+
+    setMessages(prev => prev.map(m => m.id === messageId ? { ...m, isExtractionLoading: false, extractedItems: items.length > 0 ? items : null } : m));
+    if (items.length > 0) {
+        setExtractionPanelMessageId(messageId);
+    }
+  }, [messages]);
+
+  const handleAcceptAll = useCallback((messageId: string) => {
+    const message = messages.find(m => m.id === messageId);
+    if (message && message.extractedItems) {
+      setAcceptedItems(prev => [...prev, ...message.extractedItems!]);
+      setMessages(prev => prev.map(m => 
+        m.id === messageId ? { ...m, extractedItems: null, itemsAccepted: true, isExtractable: false } : m
+      ));
+    }
+    setExtractionPanelMessageId(null);
+  }, [messages]);
+
+  const handleDeclineItem = useCallback((messageId: string, itemId: string) => {
+    setMessages(prev => {
+        const newMessages = prev.map(m => {
+            if (m.id === messageId && m.extractedItems) {
+                const newItems = m.extractedItems.filter(item => item.id !== itemId);
+                if (newItems.length === 0) {
+                    setExtractionPanelMessageId(null);
+                }
+                return { ...m, extractedItems: newItems.length > 0 ? newItems : null };
+            }
+            return m;
+        });
+        return newMessages;
+    });
+  }, []);
+
 
   return (
     <div className="flex h-screen font-sans antialiased overflow-hidden">
@@ -129,6 +200,10 @@ function App() {
         messages={messages}
         onSendMessage={handleSendMessage}
         isLoading={isLoading}
+        extractionPanelMessageId={extractionPanelMessageId}
+        onExtractItems={handleExtractItems}
+        onAcceptAll={handleAcceptAll}
+        onDeclineItem={handleDeclineItem}
       />
     </div>
   );

@@ -1,9 +1,14 @@
 import React from 'react';
 import type { Message as MessageType } from '../types';
 import { Icon } from './Icons';
+import { ExtractedItemsPanel } from './ExtractedItemsPanel.tsx';
 
 interface MessageProps {
   message: MessageType;
+  isExtractionPanelOpen: boolean;
+  onExtractItems: (messageId: string) => void;
+  onAcceptAll: (messageId: string) => void;
+  onDeclineItem: (messageId: string, itemId: string) => void;
 }
 
 export const AiAvatar: React.FC = () => (
@@ -48,8 +53,9 @@ const ParsedContent: React.FC<{ text: string }> = ({ text }) => {
 };
 
 
-export const Message: React.FC<MessageProps> = ({ message }) => {
+export const Message: React.FC<MessageProps> = ({ message, isExtractionPanelOpen, onExtractItems, onAcceptAll, onDeclineItem }) => {
   const isAI = message.sender === 'ai';
+  const showExtractionButton = message.isExtractable && !message.itemsAccepted;
 
   return (
     <div className="flex items-start space-x-4 py-4">
@@ -61,6 +67,31 @@ export const Message: React.FC<MessageProps> = ({ message }) => {
         </div>
         <div className="text-slate-700 mt-1 prose prose-sm max-w-none">
             <ParsedContent text={message.text} />
+        </div>
+        <div className="mt-2">
+            {message.isExtractionLoading && (
+                 <div className="inline-flex items-center space-x-2 px-3 py-1 text-xs font-medium text-slate-600 bg-slate-100 rounded-full">
+                    <div className="w-4 h-4 border-2 border-slate-400 border-t-transparent rounded-full animate-spin"></div>
+                    <span>Analyzing...</span>
+                </div>
+            )}
+            {showExtractionButton && !message.isExtractionLoading && (
+                 <button 
+                    onClick={() => onExtractItems(message.id)}
+                    className="inline-flex items-center space-x-2 px-3 py-1 text-xs font-medium text-blue-700 bg-blue-100 rounded-full hover:bg-blue-200 transition-colors"
+                    aria-label="Extract action items"
+                >
+                    <Icon name="bot" className="w-4 h-4" />
+                    <span>AI</span>
+                </button>
+            )}
+            {isExtractionPanelOpen && message.extractedItems && (
+                <ExtractedItemsPanel 
+                    items={message.extractedItems}
+                    onAcceptAll={() => onAcceptAll(message.id)}
+                    onDeclineItem={(itemId) => onDeclineItem(message.id, itemId)}
+                />
+            )}
         </div>
       </div>
     </div>

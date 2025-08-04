@@ -7,6 +7,10 @@ interface ChatWindowProps {
   messages: MessageType[];
   onSendMessage: (message: string) => void;
   isLoading: boolean;
+  extractionPanelMessageId: string | null;
+  onExtractItems: (messageId: string) => void;
+  onAcceptAll: (messageId: string) => void;
+  onDeclineItem: (messageId: string, itemId: string) => void;
 }
 
 const ChatHeader: React.FC = () => (
@@ -15,7 +19,15 @@ const ChatHeader: React.FC = () => (
     </div>
 )
 
-export const ChatWindow: React.FC<ChatWindowProps> = ({ messages, onSendMessage, isLoading }) => {
+export const ChatWindow: React.FC<ChatWindowProps> = ({ 
+    messages, 
+    onSendMessage, 
+    isLoading, 
+    extractionPanelMessageId,
+    onExtractItems,
+    onAcceptAll,
+    onDeclineItem,
+}) => {
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
   const scrollToBottom = () => {
@@ -32,7 +44,14 @@ export const ChatWindow: React.FC<ChatWindowProps> = ({ messages, onSendMessage,
       <div className="flex-1 overflow-y-auto p-6">
         <div className="space-y-4">
           {messages.map((msg) => (
-            <Message key={msg.id} message={msg} />
+            <Message 
+                key={msg.id} 
+                message={msg}
+                isExtractionPanelOpen={extractionPanelMessageId === msg.id}
+                onExtractItems={onExtractItems}
+                onAcceptAll={onAcceptAll}
+                onDeclineItem={onDeclineItem}
+            />
           ))}
           {isLoading && messages[messages.length-1]?.sender === 'user' && (
              <div className="flex items-start space-x-4 py-4">
