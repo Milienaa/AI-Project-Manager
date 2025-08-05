@@ -73,7 +73,7 @@ export async function extractActionItems(text: string): Promise<ExtractedItem[]>
 
     try {
         const response = await ai.models.generateContent({
-            model: "gemini-2.5-flash",
+            model: "gemini-2.5-flash-lite",
             contents: text,
             config: {
                 systemInstruction: EXTRACTION_PROMPT,
