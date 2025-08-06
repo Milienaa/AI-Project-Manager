@@ -1,16 +1,11 @@
 
 import React, { useState, useEffect, useCallback, useRef } from 'react';
-import type { Chat } from '@google/genai';
+import type { Chat, FunctionCall } from '@google/genai';
 import type { Message, ExtractedItem } from './types';
 import { Sidebar } from './components/Sidebar';
 import { ChatWindow } from './components/ChatWindow';
 import { createChatSession, sendMessageStream, extractActionItems } from './services/geminiService';
 import { INITIAL_MESSAGES, AI_GREETING } from './constants';
-
-interface FunctionCall {
-  name: string;
-  args: { [key: string]: any; };
-}
 
 function App() {
   const [messages, setMessages] = useState<Message[]>(INITIAL_MESSAGES);
@@ -111,11 +106,14 @@ function App() {
                 ));
             }
             
-            // HACK: The `functionCalls` property may exist on the chunk object directly as an array.
-            // We access it through `any` to bypass strict type checking, as SDK versions can vary.
-            const calls = (chunk as any).functionCalls;
-            if (calls && Array.isArray(calls)) {
-                functionCalls.push(...calls);
+            // CORRECTED LOGIC: Extract function calls from the structured response.
+            const parts = chunk.candidates?.[0]?.content?.parts;
+            if (parts) {
+                for (const part of parts) {
+                    if (part.functionCall) {
+                        functionCalls.push(part.functionCall);
+                    }
+                }
             }
         }
         

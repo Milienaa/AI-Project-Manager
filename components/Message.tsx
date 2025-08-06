@@ -36,7 +36,7 @@ const ParsedContent: React.FC<{ text: string }> = ({ text }) => {
         if (line.startsWith('🎯 Insight:')) {
             return <p key={index} className="font-semibold text-slate-800 flex items-center gap-2"><Icon name="insight" className="w-5 h-5 text-blue-500"/>{line.replace('🎯 ', '')}</p>;
         }
-        if (line.startsWith('❓ Questions:')) {
+        if (line.startsWith('❓ Question:')) {
             return <p key={index} className="font-semibold text-slate-800 flex items-center gap-2"><Icon name="question" className="w-5 h-5 text-purple-500"/>{line.replace('❓ ', '')}</p>;
         }
         if (line.match(/^\d+\.\s.*:$/)) { // Matches "1. Step Title:"
