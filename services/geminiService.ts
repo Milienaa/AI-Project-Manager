@@ -30,7 +30,7 @@ const extractionTool = {
 
 export function createChatSession(): Chat {
     const chat: Chat = ai.chats.create({
-        model: 'gemini-2.5-flash',
+        model: 'gemini-2.5-flash-lite',
         config: {
             systemInstruction: AI_SYSTEM_PROMPT,
             tools: [extractionTool],
