@@ -83,6 +83,8 @@ export async function extractActionItems(text: string): Promise<ExtractedItem[]>
         });
         
         const jsonText = response.text.trim();
+        console.log("🧪 Gemini raw extraction response:", jsonText); // <-- ДОДАЙ СЮДИ
+
         const parsedJson = JSON.parse(jsonText);
 
         const extractedItems: ExtractedItem[] = [];
