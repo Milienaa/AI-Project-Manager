@@ -6,7 +6,7 @@ import type { Message, ExtractedItem, ExtractedItemCategory } from './types';
 import { Sidebar } from './components/Sidebar';
 import { ChatWindow } from './components/ChatWindow';
 import { createChatSession, sendMessageStream } from './services/geminiService';
-import { INITIAL_MESSAGES, AI_GREETING, AI_SYSTEM_PROMPT } from './constants';
+import { INITIAL_MESSAGES, AI_GREETING } from './constants';
 
 function App() {
   const [messages, setMessages] = useState<Message[]>(INITIAL_MESSAGES);
@@ -16,7 +16,6 @@ function App() {
   const [extractionPanelMessageId, setExtractionPanelMessageId] = useState<string | null>(null);
   const [acceptedItems, setAcceptedItems] = useState<ExtractedItem[]>([]);
   const isResizing = useRef(false);
-  const chatIdRef = useRef(`chat-${Math.random().toString(36).substring(2, 9)}`);
 
   const handleMouseDown = (e: React.MouseEvent) => {
     e.preventDefault();
@@ -87,16 +86,6 @@ function App() {
     setMessages(prev => [...prev, userMessage]);
     setIsLoading(true);
 
-    const logPayload = (payload: object) => {
-      console.debug('WS DEBUG', {
-        chatId: chatIdRef.current,
-        payload: { ...payload, type: 'DEBUG_EVENT' }
-      });
-    };
-
-    logPayload({ stage: 'systemPrompt', input: AI_SYSTEM_PROMPT });
-    logPayload({ stage: 'messageBuffer', input: 'Відповідь до розмови, що містить повідомлення.' });
-
     try {
         const stream = await sendMessageStream(chatSession, text);
         
@@ -122,17 +111,14 @@ function App() {
             const calls = chunk.functionCalls;
             if (calls) {
                 calls.forEach(call => {
-                    logPayload({ 
-                        stage: 'TOOL_CALL', 
-                        toolName: call.name, 
-                        input: call.args,
-                        txtId: `txt-${Math.random().toString(36).substring(2, 9)}`
-                    });
+                    console.debug('type: TOOLCALL', call);
                 });
                 functionCalls.push(...calls);
             }
         }
         
+        console.debug('TYPE: MESSAGE', aiResponseText.trim());
+
         const extractedItems: ExtractedItem[] = [];
 
         functionCalls.forEach(call => {
