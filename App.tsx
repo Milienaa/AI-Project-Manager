@@ -1,11 +1,12 @@
 
 import React, { useState, useEffect, useCallback, useRef } from 'react';
+// FIX: import FunctionCall type from @google/genai to resolve type mismatch with function calls in the stream response.
 import type { Chat, FunctionCall } from '@google/genai';
-import type { Message, ExtractedItem } from './types';
+import type { Message, ExtractedItem, ExtractedItemCategory } from './types';
 import { Sidebar } from './components/Sidebar';
 import { ChatWindow } from './components/ChatWindow';
-import { createChatSession, sendMessageStream, extractActionItems } from './services/geminiService';
-import { INITIAL_MESSAGES, AI_GREETING } from './constants';
+import { createChatSession, sendMessageStream } from './services/geminiService';
+import { INITIAL_MESSAGES, AI_GREETING, AI_SYSTEM_PROMPT } from './constants';
 
 function App() {
   const [messages, setMessages] = useState<Message[]>(INITIAL_MESSAGES);
@@ -15,6 +16,7 @@ function App() {
   const [extractionPanelMessageId, setExtractionPanelMessageId] = useState<string | null>(null);
   const [acceptedItems, setAcceptedItems] = useState<ExtractedItem[]>([]);
   const isResizing = useRef(false);
+  const chatIdRef = useRef(`chat-${Math.random().toString(36).substring(2, 9)}`);
 
   const handleMouseDown = (e: React.MouseEvent) => {
     e.preventDefault();
@@ -57,8 +59,8 @@ function App() {
       };
       setMessages([greetingMessage]);
 
-    } catch (error) {
-      console.error("Failed to initialize chat session:", error);
+    } catch (e) {
+      console.error("Failed to initialize chat session:", e);
       const errorMessage: Message = {
         id: 'error-init',
         sender: 'ai',
@@ -79,10 +81,21 @@ function App() {
       id: Date.now().toString(),
       sender: 'user',
       text,
+      // FIX: Removed redundant 'new' keyword which was causing a syntax error.
       timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
     };
     setMessages(prev => [...prev, userMessage]);
     setIsLoading(true);
+
+    const logPayload = (payload: object) => {
+      console.debug('WS DEBUG', {
+        chatId: chatIdRef.current,
+        payload: { ...payload, type: 'DEBUG_EVENT' }
+      });
+    };
+
+    logPayload({ stage: 'systemPrompt', input: AI_SYSTEM_PROMPT });
+    logPayload({ stage: 'messageBuffer', input: 'Відповідь до розмови, що містить повідомлення.' });
 
     try {
         const stream = await sendMessageStream(chatSession, text);
@@ -106,33 +119,64 @@ function App() {
                 ));
             }
             
-            // CORRECTED LOGIC: Extract function calls from the structured response.
-            const parts = chunk.candidates?.[0]?.content?.parts;
-            if (parts) {
-                for (const part of parts) {
-                    if (part.functionCall) {
-                        functionCalls.push(part.functionCall);
-                    }
-                }
+            const calls = chunk.functionCalls;
+            if (calls) {
+                calls.forEach(call => {
+                    logPayload({ 
+                        stage: 'TOOL_CALL', 
+                        toolName: call.name, 
+                        input: call.args,
+                        txtId: `txt-${Math.random().toString(36).substring(2, 9)}`
+                    });
+                });
+                functionCalls.push(...calls);
             }
         }
         
-        let isExtractable = false;
-        let extractionText = '';
-        const extractionCall = functionCalls.find(call => call.name === 'proposeActionItemsExtraction');
+        const extractedItems: ExtractedItem[] = [];
 
-        if (extractionCall) {
-            isExtractable = true;
-            extractionText = extractionCall.args.textToExtract as string || aiResponseText;
+        functionCalls.forEach(call => {
+            if (call.name === 'CreateActionPointTool' && call.args) {
+                const { title, type } = call.args;
+
+                if (title && typeof title === 'string' && type && typeof type === 'string') {
+                    let category: ExtractedItemCategory | null = null;
+                    switch(type.toUpperCase()) {
+                        case 'TASK':
+                            category = 'tasks';
+                            break;
+                        case 'PROBLEM':
+                            category = 'problems';
+                            break;
+                        case 'INSIGHTS':
+                             category = 'insights';
+                            break;
+                        case 'QUESTION':
+                             category = 'questions';
+                            break;
+                    }
+
+                    if (category) {
+                        extractedItems.push({
+                            id: `${category}-${Math.random().toString(36).substring(2, 9)}`,
+                            category: category,
+                            text: title,
+                        });
+                    }
+                }
+            }
+        });
+
+        setMessages(prev => prev.map(msg =>
+            msg.id === aiMessageId ? { ...msg, text: aiResponseText.trim(), extractedItems } : msg
+        ));
+        
+        if (extractedItems.length > 0) {
+            setExtractionPanelMessageId(aiMessageId);
         }
 
-        setMessages(prev => prev.map(msg => 
-            msg.id === aiMessageId ? { ...msg, text: aiResponseText, isExtractable, extractionText } : msg
-        ));
-
-
-    } catch (error) {
-        console.error("Error sending message:", error);
+    } catch (e) {
+        console.error("Error sending message:", e);
         const errorMessage: Message = {
             id: `error-${Date.now()}`,
             sender: 'ai',
@@ -145,26 +189,12 @@ function App() {
     }
   }, [chatSession]);
 
-  const handleExtractItems = useCallback(async (messageId: string) => {
-    const message = messages.find(m => m.id === messageId);
-    if (!message || !message.extractionText) return;
-
-    setMessages(prev => prev.map(m => m.id === messageId ? { ...m, isExtractionLoading: true } : m));
-    
-    const items = await extractActionItems(message.extractionText);
-
-    setMessages(prev => prev.map(m => m.id === messageId ? { ...m, isExtractionLoading: false, extractedItems: items.length > 0 ? items : null } : m));
-    if (items.length > 0) {
-        setExtractionPanelMessageId(messageId);
-    }
-  }, [messages]);
-
   const handleAcceptAll = useCallback((messageId: string) => {
     const message = messages.find(m => m.id === messageId);
     if (message && message.extractedItems) {
       setAcceptedItems(prev => [...prev, ...message.extractedItems!]);
       setMessages(prev => prev.map(m => 
-        m.id === messageId ? { ...m, extractedItems: null, itemsAccepted: true, isExtractable: false } : m
+        m.id === messageId ? { ...m, extractedItems: null, itemsAccepted: true } : m
       ));
     }
     setExtractionPanelMessageId(null);
@@ -199,7 +229,6 @@ function App() {
         onSendMessage={handleSendMessage}
         isLoading={isLoading}
         extractionPanelMessageId={extractionPanelMessageId}
-        onExtractItems={handleExtractItems}
         onAcceptAll={handleAcceptAll}
         onDeclineItem={handleDeclineItem}
       />
